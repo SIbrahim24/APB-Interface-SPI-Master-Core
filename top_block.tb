@@ -1,0 +1,237 @@
+module top_tb;
+
+	reg pclk;
+	reg preset_n;
+	reg [2:0] paddr;
+	reg pwrite;
+	reg psel;
+	reg penable;
+	reg [7:0] pwdata;
+	reg miso;
+
+	wire ss;
+	wire sclk;
+	wire spi_interrupt_request;
+	wire mosi;
+	wire [7:0] prdata;
+	wire pready;
+	wire pslverr;
+
+top DUT(
+    .pclk(pclk),
+    .preset_n(preset_n),
+    .paddr(paddr),
+    .pwrite(pwrite),
+    .psel(psel),
+    .penable(penable),
+    .pwdata(pwdata),
+    .miso(miso),
+    .ss(ss),
+    .sclk(sclk),
+    .spi_interrupt_request(spi_interrupt_request),
+    .mosi(mosi),
+    .prdata(prdata),
+    .pready(pready),
+    .pslverr(pslverr)
+);
+
+initial begin
+    pclk = 1'b0;
+    forever #5 pclk = ~pclk;
+end
+
+task reset;
+begin
+    @(negedge pclk);
+    preset_n = 1'b0;
+    @(negedge pclk);
+    preset_n = 1'b1;
+end
+endtask
+
+task initialization;
+begin
+    pclk = 1'b0;
+    preset_n = 1'b0;
+    paddr = 3'b000;
+    pwrite = 1'b0;
+    psel = 1'b1;
+    penable = 1'b0;
+    pwdata = 8'b0;
+    miso = 1'b0;
+end
+endtask
+
+task write_register(input [7:0] ctrl_reg1, input [7:0] ctrl_reg2, input [7:0] baud_reg);
+begin
+    @(negedge pclk)// CR1
+    paddr = 3'b000;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b0; //Setup state
+    pwdata= ctrl_reg1;
+
+    @(negedge pclk)
+    paddr = 3'b000;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b1; //Enable state
+    pwdata = ctrl_reg1;
+
+    @(negedge pclk)
+    wait(pready)
+    penable = 1'b0;
+
+    @(negedge pclk) //CR2
+    paddr = 3'b001;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b0; //Setup state
+    pwdata = ctrl_reg2;
+
+    @(negedge pclk)
+    paddr = 3'b001;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b1; //Enable state
+    pwdata = ctrl_reg2;
+
+    @(negedge pclk)
+    wait(pready)
+    penable = 1'b0;
+
+    @(negedge pclk)// Baudrate reg
+    paddr = 3'b010;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b0; //setup state
+    pwdata = baud_reg;
+
+    @(negedge pclk)
+    paddr = 3'b010;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b1; //Enable state
+    pwdata  = baud_reg;
+
+    @(negedge pclk)
+    wait(pready)
+    penable = 1'b0;
+end
+endtask
+
+task write_data_reg(input [7:0] data_reg);
+begin
+   @(negedge pclk)
+    paddr = 3'b101;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b0; //setup state
+    pwdata = data_reg;
+
+    @(negedge pclk)// 
+    paddr = 3'b101;
+    pwrite = 1'b1;
+    psel = 1'b1;
+    penable = 1'b1; //Enable state
+    pwdata = data_reg;
+
+    @(negedge pclk)
+    wait(pready)
+    penable = 1'b0;
+
+end
+endtask
+
+//write data_miso lsbfe = 1 & cpol and cpha differs
+task miso_data_neg_lsbfe(input [7:0] data);
+integer i;
+begin
+    miso = 1'bz;
+    wait(~ss)
+    for(i = 0; i <= 7; i= i+1)begin
+        @(negedge sclk)
+        miso = data[i];
+    end
+end
+endtask
+
+// write data_miso lsbfe = 0 & cpol ad cpha differs
+task miso_data_neg_lsbfe0(input [7:0] data);
+integer i;
+begin
+    miso = 1'bz;
+    wait(~ss)
+    for(i = 7; i >= 0; i = i-1)begin
+        @(negedge sclk)
+        miso = data[i];
+    end 
+end
+endtask
+
+//write data_miso lsbfe = 1 & cpol cpha are same
+task miso_data_pos_lsbfe(input [7:0] data);
+integer i;
+begin
+    miso = 1'bz;
+    wait(~ss)
+    for(i = 0; i<= 7 ; i = i+1)begin
+        @(negedge sclk)
+        miso = data[i];
+    end
+end
+endtask
+
+//write data_miso lsbfe = 0 & cpol cpha are same
+task miso_data_pos_lsbfe0(input [7:0] data);
+integer i;
+begin
+    miso = 1'bz;
+    wait(~ss)
+    for(i = 7; i>= 0; i = i-1)begin
+        @(negedge sclk)
+        miso = data[i];
+    end
+end
+endtask
+
+//Read registers
+task read_register(input [2:0] address);
+begin
+    @(negedge pclk)
+    paddr = address;
+    pwrite = 1'b0;
+    psel = 1'b1;
+    penable = 1'b0;
+
+    @(negedge pclk)
+    paddr = address;
+    pwrite = 1'b0;
+    psel = 1'b1;
+    penable = 1'b1;
+
+    @(negedge pclk)
+    wait(pready)
+    penable = 1'b0;
+
+end
+endtask
+
+initial begin
+    initialization;
+    reset;
+    write_register(8'b01011111, 8'b00000000, 8'b00000001);
+    write_data_reg(8'hAA);
+    miso_data_neg_lsbfe(8'hFA);
+    read_register(3'b000);
+    read_register(3'b001);
+    read_register(3'b010);
+    read_register(3'b011);
+    read_register(3'b101);
+end
+
+initial begin
+    #5000 $finish;
+end
+
+endmodule
